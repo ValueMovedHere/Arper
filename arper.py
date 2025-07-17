@@ -63,7 +63,7 @@ class Arper:
         print('-' * 30)
 
     def run(self):
-        with Context():
+        with Forward():
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
             attacker = ActiveAttacker()    # passive strategy temporarily unavailable
             attacker.start(self)
@@ -152,13 +152,16 @@ class ActiveAttacker:
             poison_process.start()
             arper.sniff_process.join()
         except (KeyboardInterrupt, Exception) as e:
-            if isinstance(e, KeyboardInterrupt):
-                print('Aborted')
+            with NoInterrupt():
+                if isinstance(e, KeyboardInterrupt):
+                    print('Aborted')
         else:
-            arper.poison_event.set()
-            poison_process.join()
+            with NoInterrupt():
+                arper.poison_event.set()
+                poison_process.join()
         finally:
-            self.restore(arper)
+            with NoInterrupt():
+                self.restore(arper)
             
 
 class PassiveAttacker:
@@ -202,7 +205,24 @@ class PassiveAttacker:
 def handle_sigint(signum, frame):
     raise KeyboardInterrupt
 
-class Context:
+class Interrupt:
+    def __enter__(self, interrupt: bool):
+        if interrupt:
+            pass
+
+class NoInterrupt:
+    """
+    Prevent users from repeatedly triggering KeyboardInterrupt, 
+    ensuring crucial operations proceed smoothly
+    """
+    def __enter__(self):
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+class Forward:
     def __enter__(self):
         with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
             self.original_value = f.read().strip()
