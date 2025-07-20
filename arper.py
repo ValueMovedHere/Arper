@@ -235,7 +235,7 @@ class PassiveAttacker:
                 count=5)
 
     def start(self, arper: Arper):
-        print("Please ensure that the network card's promiscuous mode has been enabled. ")
+        print(f"{RED_BOLD}Please ensure that the network card's promiscuous mode has been enabled. {RESET}")
         try:
             poison_process = Process(target=self.poison)
             arper.sniff_process = Process(target=self.sniff_and_store, args=[arper, poison_process])
