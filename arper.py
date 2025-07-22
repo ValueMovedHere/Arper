@@ -41,18 +41,18 @@ class Arper:
         try:
             addr1, addr2 = ip_address(target), ip_address(gateway)
             if (addr1.version != 4) or (addr2.version != 4):
-                sys.exit('ARP cache poisoning is ineffective against IPv6')
-        except Exception as e:
-            sys.exit(f'Invalid input: {e}')
+                raise InvalidIPAddressError('ARP cache poisoning requires IPv4 addresses')
+        except ValueError as e:
+            raise InvalidIPAddressError(f'Invalid IP format: {e}') from e
         self.autorestore = autorestore
         self.target = target
         self.target_mac = get_mac(self.target)
         if self.target_mac is None:
-            sys.exit(f'{RED_BOLD}Target not found{RESET}')
+            raise MACNotFoundError(f'Target device ({target}) unreachable')
         self.gateway = gateway
         self.gateway_mac = get_mac(gateway)
         if self.gateway_mac is None:
-            sys.exit(f'{RED_BOLD}Gateway not found{RESET}')
+            raise MACNotFoundError(f'Gateway ({gateway}) unreachable')
         self.count = count
         self.interface = interface
         self.delay = delay
@@ -281,12 +281,19 @@ class Forward:
             with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
                 f.write(self.original_value + '\n')
 
+class ARPSpoofingError(Exception):
+    pass
+
+class InvalidIPAddressError(ARPSpoofingError):
+    pass
+
+class MACNotFoundError(ARPSpoofingError):
+    pass
 
 if __name__ == '__main__':
     '''main execution flow'''
     if os.getuid() != 0:
-        print(f'{RED_BOLD}Run it as root.{RESET}')
-        exit(1)
+        raise PermissionError(f'{RED_BOLD}Run it as root{RESET}')
     parser = argparse.ArgumentParser(description='Perform ARP spoofing on the target machine')
     parser.add_argument('target',  help='IPv4 address of target machine')
     parser.add_argument('-g', '--g', metavar='gateway', required=True, help='IPv4 addr of gateway', dest='gateway')
@@ -295,5 +302,12 @@ if __name__ == '__main__':
     parser.add_argument('-num', '--num', type=int, metavar='number', help='number of packets to sniff', default=200)
     args = parser.parse_args()
 
-    myarp = Arper(args.target, args.gateway, args.i, args.num, autorestore=args.n)
-    myarp.run()
+    try:
+        myarp = Arper(args.target, args.gateway, args.i, args.num, autorestore=args.n)
+        myarp.run()
+    except (InvalidIPAddressError, MACNotFoundError) as e:
+        print(f'{RED_BOLD}Configuration error: {e}{RESET}')
+        sys.exit(1)
+    except PermissionError as e:
+        print(f'{RED_BOLD}{e}{RESET}')
+        sys.exit(1)
