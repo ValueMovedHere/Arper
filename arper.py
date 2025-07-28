@@ -82,7 +82,7 @@ class Arper:
             
 class ActiveAttacker:
     
-    def poison(self, arper: Arper, event: Event):
+    def poison(self, arper: Arper, event: Event):   # type: ignore
         # If you press CTRL-C, it terminates immediately
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         ether1 = Ether(dst=arper.target_mac)
@@ -121,7 +121,7 @@ class ActiveAttacker:
         packets = sniff(count=arper.count, filter=bpf_filter, iface=arper.interface)    # The sniff function can handle KeyboardInterrupt
 
         with NoInterrupt():
-            arper.poison_event.set()
+            arper.poison_event.set()    # type: ignore
             wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
             print(f'Got {len(packets)} packets')
 
@@ -171,7 +171,7 @@ class ActiveAttacker:
                     print('Aborted')
         else:
             with NoInterrupt():
-                arper.poison_event.set()
+                arper.poison_event.set()    # type: ignore
                 poison_process.join()
         finally:
             with NoInterrupt():
