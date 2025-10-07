@@ -304,19 +304,61 @@ class MACNotFoundError(ARPSpoofingError):
     pass
 
 if __name__ == '__main__':
-    '''main execution flow'''
+    '''ARP Spoofing Tool'''
     if os.getuid() != 0:
-        raise PermissionError(f'{RED_BOLD}Run it as root{RESET}')
-    parser = argparse.ArgumentParser(description='Perform ARP spoofing on the target machine')
-    parser.add_argument('target',  help='IPv4 address of target machine')
-    parser.add_argument('-g', '--g', metavar='gateway', required=True, help='IPv4 addr of gateway', dest='gateway')
-    parser.add_argument('-i', '--i', metavar='interface', help='network interface', default='wlan0')
-    parser.add_argument('-n', '--n', help='DO NOT restore ARP tables automatically\nBy default it will restore ARP tables before quitting', action='store_false')
-    parser.add_argument('-num', '--num', type=int, metavar='number', help='number of packets to sniff', default=200)
+        raise PermissionError(f'{RED_BOLD}This tool requires root privileges to run{RESET}')
+    
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='ARP Spoofing Tool\nThis tool performs ARP spoofing attacks, allowing interception of network traffic from target devices.',
+        epilog='''Examples:
+  %(prog)s 192.168.1.100 -g 192.168.1.1
+  %(prog)s 192.168.1.100 -g 192.168.1.1 -i eth0 -num 500 --no-restore
+
+Legal Notice:
+  Unauthorised use of this tool to attack networks may result in criminal charges.
+  For authorised security testing purposes only.'''
+    )
+    
+    parser.add_argument(
+        'target',
+        help='IPv4 address of the target device'
+    )
+    
+    parser.add_argument(
+        '-g', '--gateway',
+        metavar='IP_ADDRESS',
+        required=True,
+        help='IPv4 address of the network gateway',
+        dest='gateway'
+    )
+    
+    parser.add_argument(
+        '-i', '--interface',
+        metavar='INTERFACE',
+        help='Network interface to use (default: wlan0)',
+        default='wlan0'
+    )
+    
+    parser.add_argument(
+        '-n', '--no-restore',
+        help='Do not automatically restore ARP tables after attack',
+        action='store_false',
+        dest='n'
+    )
+    
+    parser.add_argument(
+        '--num',
+        type=int,
+        metavar='COUNT',
+        help='Number of packets to capture (default: 200)',
+        default=200
+    )
+    
     args = parser.parse_args()
 
     try:
-        myarp = Arper(args.target, args.gateway, args.i, args.num, autorestore=args.n)
+        myarp = Arper(args.target, args.gateway, args.interface, args.num, autorestore=args.n)
         myarp.run()
     except (InvalidIPAddressError, MACNotFoundError) as e:
         print(f'{RED_BOLD}Configuration error: {e}{RESET}')
