@@ -71,7 +71,7 @@ class Arper:
         print('-' * 30)
 
     def run(self):
-        with Forward():
+        with IPForwarding():
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
             # An Event instance is created if and only if the ActiveAttacker strategy is selected
             if isinstance(attacker, ActiveAttacker):
@@ -280,7 +280,7 @@ class NoInterrupt:
     def __exit__(self, exc_type, exc_val, exc_tb):
         signal.signal(signal.SIGINT, self.original)
 
-class Forward:
+class IPForwarding:
     def __enter__(self):
         with open('/proc/sys/net/ipv4/ip_forward', 'r') as f:
             self.original_value = f.read().strip()
