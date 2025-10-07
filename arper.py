@@ -1,13 +1,13 @@
 #!/home/kali/cyber-attack-test/env/bin/python
 '''
-WARNING: 
-Unauthorised network interference violates:
-- 18 U.S. Code § 1030 (CFAA)
-- Computer Misuse Act 1990 (UK)
-- 刑法第285条 (中国大陆)
-- 仅限授权测试使用！攻击他人网络将面临刑事指控。
-- No script kiddies allowed! 
+=============================================================
+- 中国大陆: 刑法第285条 (非法侵入计算机信息系统罪) - 可导致刑事处罚
+- 美国: 18 U.S. Code § 1030 (计算机欺诈和滥用法案) - 可导致重罪指控
+- 英国: Computer Misuse Act 1990 (计算机滥用法案) - 可导致刑事起诉
+- 禁止脚本小子
+=============================================================
 '''
+
 from ipaddress import ip_address
 from multiprocessing import Process, Event
 from scapy.sendrecv import sendp, srp, sniff
