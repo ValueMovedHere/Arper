@@ -1,12 +1,9 @@
-#!/home/kali/cyber-attack-test/env/bin/python
-'''
-=============================================================
+"""
 - 中国大陆: 刑法第285条 (非法侵入计算机信息系统罪) - 可导致刑事处罚
 - 美国: 18 U.S. Code § 1030 (计算机欺诈和滥用法案) - 可导致重罪指控
 - 英国: Computer Misuse Act 1990 (计算机滥用法案) - 可导致刑事起诉
 - 禁止脚本小子
-=============================================================
-'''
+"""
 
 from ipaddress import ip_address
 from multiprocessing import Process, Event
@@ -87,7 +84,6 @@ class Arper:
         self.gateway_mac = get_mac(self.gateway) if self.gateway_mac is None else self.gateway_mac
         if not (self.target_mac and self.gateway_mac):
             raise MACNotFoundError('Target or gateway unreachable')
-
         with IPForwarding():
             attacker = ActiveAttacker() if self.active else PassiveAttacker()
             # An Event instance is created if and only if the ActiveAttacker strategy is selected
