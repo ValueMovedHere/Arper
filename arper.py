@@ -4,7 +4,9 @@
 - 英国: Computer Misuse Act 1990 (计算机滥用法案) - 可导致刑事起诉
 - 禁止脚本小子
 """
+import filecmp
 
+from pathlib import Path
 from ipaddress import ip_address
 from multiprocessing import Process, Event
 from scapy.sendrecv import sendp, srp, sniff
@@ -57,6 +59,7 @@ class Arper:
         gateway: str,
         interface: str,
         count: int = 200,
+        path: Path = Path.cwd(), 
         delay=2,
         ban: bool = False,
         active=True,
@@ -83,6 +86,7 @@ class Arper:
         self.target_mac = target_mac
         self.gateway_mac = gateway_mac
         self.count = count
+        self.path = path
         self.interface = interface
         self.delay = delay
         self.active = active
@@ -187,8 +191,10 @@ class ActiveAttacker:
 
         with NoInterrupt():
             arper.poison_event.set()  # type: ignore
+            path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+            file = path.open("wb")
             wrpcap(
-                f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap",
+                file,
                 packets,
             )
             print(f"Got {len(packets)} packets")
@@ -252,9 +258,11 @@ class PassiveAttacker:
 
         with NoInterrupt():
             poison_process.kill()
-            poison_process.join()  # Hence, attempts to terminate it elsewhere in the code would be redundant
+            poison_process.join()  # Hence, attempts to terminate it elsewhere in the code would be redundantt
+            path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+            file = path.open("wb")
             wrpcap(
-                f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap",
+                file,
                 packets,
             )
             print(f"Got {BLUE_BOLD}{len(packets)}{RESET} packets")
