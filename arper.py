@@ -4,7 +4,6 @@
 - 英国: Computer Misuse Act 1990 (计算机滥用法案) - 可导致刑事起诉
 - 禁止脚本小子
 """
-import filecmp
 
 from pathlib import Path
 from ipaddress import ip_address
