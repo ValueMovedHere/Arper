@@ -5,6 +5,7 @@
 - 禁止脚本小子
 """
 
+from pathlib import Path
 from ipaddress import ip_address
 from multiprocessing import Process, Event
 from scapy.sendrecv import sendp, srp, sniff
@@ -57,6 +58,8 @@ class Arper:
         gateway: str,
         interface: str,
         count: int = 200,
+        save_to_disk: bool = True, 
+        path: Path = Path.cwd(), 
         delay=2,
         ban: bool = False,
         active=True,
@@ -83,11 +86,13 @@ class Arper:
         self.target_mac = target_mac
         self.gateway_mac = gateway_mac
         self.count = count
+        self.path = path
         self.interface = interface
         self.delay = delay
         self.active = active
         self.poison_event = None
         self.sniff_process: Process
+        self.save_to_disk = save_to_disk
         conf.iface = interface
         conf.verb = 0
 
@@ -187,10 +192,13 @@ class ActiveAttacker:
 
         with NoInterrupt():
             arper.poison_event.set()  # type: ignore
-            wrpcap(
-                f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap",
-                packets,
-            )
+            path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+            file = path.open("wb")
+            if arper.save_to_disk:
+                wrpcap(
+                    file,
+                    packets,
+                )
             print(f"Got {len(packets)} packets")
 
     def start(self, arper: Arper):
@@ -252,11 +260,14 @@ class PassiveAttacker:
 
         with NoInterrupt():
             poison_process.kill()
-            poison_process.join()  # Hence, attempts to terminate it elsewhere in the code would be redundant
-            wrpcap(
-                f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap",
-                packets,
-            )
+            poison_process.join()  # Hence, attempts to terminate it elsewhere in the code would be redundantt
+            path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+            file = path.open("wb")
+            if arper.save_to_disk:
+                wrpcap(
+                    file,
+                    packets,
+                )
             print(f"Got {BLUE_BOLD}{len(packets)}{RESET} packets")
 
     def start(self, arper: Arper):
