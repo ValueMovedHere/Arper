@@ -192,13 +192,13 @@ class ActiveAttacker:
 
         with NoInterrupt():
             arper.poison_event.set()  # type: ignore
-            path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
-            file = path.open("wb")
             if arper.save_to_disk:
-                wrpcap(
-                    file,
-                    packets,
-                )
+                path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+                with path.open("wb") as file:
+                    wrpcap(
+                        file,
+                        packets,
+                    )
             print(f"Got {len(packets)} packets")
 
     def start(self, arper: Arper):
@@ -261,13 +261,13 @@ class PassiveAttacker:
         with NoInterrupt():
             poison_process.kill()
             poison_process.join()  # Hence, attempts to terminate it elsewhere in the code would be redundantt
-            path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
-            file = path.open("wb")
             if arper.save_to_disk:
-                wrpcap(
-                    file,
-                    packets,
-                )
+                path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+                with path.open("wb") as file:
+                    wrpcap(
+                        file,
+                        packets,
+                    )
             print(f"Got {BLUE_BOLD}{len(packets)}{RESET} packets")
 
     def start(self, arper: Arper):
