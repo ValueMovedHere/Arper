@@ -59,7 +59,7 @@ class Arper:
         interface: str,
         count: int = 200,
         save_to_disk: bool = True, 
-        path: Path = Path.cwd(), 
+        path = None, 
         delay=2,
         ban: bool = False,
         active=True,
@@ -86,7 +86,7 @@ class Arper:
         self.target_mac = target_mac
         self.gateway_mac = gateway_mac
         self.count = count
-        self.path = path
+        self.path = path or Path.cwd()
         self.interface = interface
         self.delay = delay
         self.active = active
