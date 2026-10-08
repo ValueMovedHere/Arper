@@ -58,8 +58,8 @@ class Arper:
         gateway: str,
         interface: str,
         count: int = 200,
-        save_to_disk: bool = True, 
-        path = None, 
+        save_to_disk: bool = True,
+        path=None,
         delay=2,
         ban: bool = False,
         active=True,
@@ -193,7 +193,10 @@ class ActiveAttacker:
         with NoInterrupt():
             arper.poison_event.set()  # type: ignore
             if arper.save_to_disk:
-                path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+                path = (
+                    arper.path
+                    / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+                )
                 with path.open("wb") as file:
                     wrpcap(
                         file,
@@ -262,7 +265,10 @@ class PassiveAttacker:
             poison_process.kill()
             poison_process.join()  # Hence, attempts to terminate it elsewhere in the code would be redundantt
             if arper.save_to_disk:
-                path = arper.path / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+                path = (
+                    arper.path
+                    / f"arper_{arper.target}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+                )
                 with path.open("wb") as file:
                     wrpcap(
                         file,
